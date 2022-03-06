@@ -16,8 +16,9 @@ class CombatLog
       this.filepath = (dir == "." ? file : (dir.endsWith("/") || dir.endsWith("\\") ? dir + file : dir + path.sep + file));
       this.parsed = false;
       this.filename = file;
-      this.instances = [];
+      this.areas = [];
       this.enemies = [];
+      this.players = [];
    }
    
    async parse(force)
@@ -35,8 +36,6 @@ class CombatLog
          });
 
          rl.on("line", (line) => {
-            //let parsed = CombatLog.parseLine(line);
-            
             let lineData = line.match(CombatLog.rexLine).groups;
             if(lineData.action.startsWith("Safe Login") && !this.character)
             {
@@ -72,41 +71,41 @@ class CombatLog
                if(!this.patch)
                   this.patch = lineData.detail2;
                let effectData = CombatLog.parseEffect(lineData.effect);
-               let add = true;
-               for(let instance of this.instances)
+               let areaData = {
+                  area: effectData.specific,
+                  areaId: effectData.specificId,
+                  unique: effectData.specificId,
+               };
+               if(effectData.modifier)
                {
-                  if(instance == effectData.targetString)
-                  {
-                     add = false;
-                     break;
-                  }
+                  areaData.mode = effectData.modifier;
+                  areaData.modeId = effectData.modifierId;
+                  areaData.unique = areaData.unique + ":" + effectData.modifierId;
                }
-               if(add)
-                  this.instances.push(effectData.targetString);
+               CombatLog.addUnique(this.areas, areaData, "unique");
             }
-            else if(lineData.effect.indexOf("{836045448945501}") > -1)
+            else if(lineData.effect.indexOf("{836045448945501}") > -1) // Damage dealt
             {
                let source = CombatLog.parseEntity(lineData.subject);
                let target = CombatLog.parseEntity(lineData.object);
-               let enemy;
-               if(source.character == this.character.character)
-                  enemy = target.characterString;
-               else if(target.character == this.character.character)
-                  enemy = source.characterString;
-               if(enemy)
-               {
-                  let add = true;
-                  for(let e of this.enemies)
-                  {
-                     if(e == enemy)
-                     {
-                        add = false;
-                        break;
-                     }
-                  }
-                  if(add)
-                     this.enemies.push(enemy);
-               }
+               if(source.unique == this.character.unique)
+                  CombatLog.addUnique(this.enemies, target, "unique");
+               else if(target.unique == this.character.unique)
+                  CombatLog.addUnique(this.enemies, source, "unique");
+               
+               if(source.isPC && source.unique != this.character.unique)
+                  CombatLog.addUnique(this.players, source, "unique");
+               if(target.isPC && target.unique != this.character.unique)
+                  CombatLog.addUnique(this.players, target, "unique");
+            }
+            else if(lineData.effect.indexOf("{836045448945500}") > -1) // Healing dealt
+            {
+               let source = CombatLog.parseEntity(lineData.subject);
+               let target = CombatLog.parseEntity(lineData.object);
+               if(source.isPC && source.unique != this.character.unique)
+                  CombatLog.addUnique(this.players, source, "unique");
+               if(target.isPC && target.unique != this.character.unique)
+                  CombatLog.addUnique(this.players, target, "unique");
             }
          });
 
@@ -132,32 +131,110 @@ class CombatLog
       return this.parsed;
    }
    
-   static parseEntity(string)
+   static addUnique(array, newItem, property=null, replace=false)
    {
-      let result = {};
-      [result.subject, result.position, result.hp] = string.split("|");
-      if(result.subject.startsWith("@"))
+      if(!newItem || (property && !newItem[property]))
+         return -1;
+      let found = -1;
+      for(let i in array)
       {
-         [result.characterFullString, result.companionFullString] = result.subject.split("/", 2);
-         result.characterString = result.characterFullString;
-         [result.character, result.characterId] = result.characterString.substring(1).split("#", 2);
-         if(result.companionFullString)
+         if(property && array[i][property] == newItem[property])
          {
-            [result.companionString, result.companionInst] = result.companionFullString.split(":", 2);
-            let idStart = result.companionString.indexOf("{");
-            result.companion = result.companionString.substring(0, idStart-1);
-            result.companionId = result.companionString.substring(idStart+1, result.companionString.length-1);
+            found = i;
+            break;
          }
-         else
-            delete result.companionFullString;
+         else if(!property && array[i] == newItem)
+         {
+            found = i;
+            break;
+         }
+      }
+      if(found == -1)
+      {
+         array.push(newItem);
+         return array.length-1;
       }
       else
       {
-         result.characterFullString = result.subject;
-         [result.characterString, result.characterInst] = result.subject.split(":", 2);
-         let idStart = result.characterString.indexOf("{");
-         result.character = result.characterString.substring(0, idStart-1);
-         result.characterId = result.characterString.substring(idStart+1, result.characterString.length-1);
+         if(replace)
+            array[i] = newItem;
+         return found;
+      }
+   }
+   
+   static parseEntity(string)
+   {
+      if(string == "=")
+         return {referToSubject:true};
+      let result = {
+         isPC: false,
+         isCompanion: false,
+      };
+      let entity, positionString, hpString;
+      [entity, positionString, hpString] = string.split("|", 3);
+      /*if(positionString)
+      {
+         result.pos = {};
+         [result.pos.x, result.pos.y, result.pos.z, result.pos.r] = positionString.slice(1, -1).split(",", 4);
+      }
+      if(hpString)
+      {
+         result.hp = {};
+         [result.hp.current, result.hp.max] = hpString.slice(1, -1).split("/", 2);
+      }*/
+      if(entity.startsWith("@"))
+      {
+         result.isPC = true;
+         let characterString, companionString;
+         [characterString, companionString] = entity.split("/", 2);
+         [result.name, result.id] = characterString.slice(1).split("#", 2);
+         if(companionString)
+         {
+            result.isCompanion = true;
+            let parsed = CombatLog.parseId(companionString);
+            if(parsed.instanceId)
+            {
+               result.instanceId = parsed.instanceId;
+               result.unique = parsed.id +":"+ parsed.instanceId;
+            }
+            else
+               result.unique = parsed.id;
+            result.pcName = result.name;
+            result.pcId = result.id;
+            result.name = parsed.name;
+            result.id = parsed.id;
+         }
+         else
+         {
+            result.unique = result.id;
+         }
+      }
+      else
+      {
+         let parsed = CombatLog.parseId(entity);
+         result.name = parsed.name;
+         result.id = parsed.id;
+         if(parsed.instanceId)
+            result.instanceId = parsed.instanceId;
+         result.unique = result.id;
+      }
+      return result;
+   }
+   
+   static parseId(string)
+   {
+      let result = {};
+      let idxBracketOpen, idxBracketClose;
+      idxBracketOpen = string.indexOf("{");
+      result.name = string.slice(0, idxBracketOpen-1);
+      idxBracketClose = string.indexOf("}", idxBracketOpen);
+      result.id = string.slice(idxBracketOpen+1, idxBracketClose);
+      if(string.length > idxBracketClose+1)
+      {
+         if(string[idxBracketClose+1] == ":" && string.indexOf(" ", idxBracketClose+2) == -1)
+            result.instanceId = string.slice(idxBracketClose+2);
+         else
+            result.remainder = string.slice(idxBracketClose+1);
       }
       return result;
    }
@@ -165,13 +242,20 @@ class CombatLog
    static parseEffect(string)
    {
       let result = {};
-      [result.typeString, result.targetString] = string.split(": ", 2);
-      /*let idStart = result.typeString.indexOf("{");
-      result.type = result.typeString.substring(0, idStart-1);
-      result.typeId = result.typeString.substring(idStart+1, result.typeString.length-1);
-      idStart = result.targetString.indexOf("{");
-      result.target = result.targetString.substring(0, idStart-1);
-      result.targetId = result.targetString.substring(idStart+1, result.targetString.length-1);*/
+      let typeString, specificString;
+      [typeString, specificString] = string.split(": ", 2);
+      let parsedType = CombatLog.parseId(typeString);
+      result.type = parsedType.name;
+      result.typeId = parsedType.id;
+      let parsedSpecific = CombatLog.parseId(specificString);
+      result.specific = parsedSpecific.name;
+      result.specificId = parsedSpecific.id;
+      if(parsedSpecific.remainder)
+      {
+         let parsedModifier = CombatLog.parseId(parsedSpecific.remainder.trimStart());
+         result.modifier = parsedModifier.name;
+         result.modifierId = parsedModifier.id;
+      }
       return result;
    }
    
@@ -179,8 +263,9 @@ class CombatLog
    {
       return {
          filename: this.filename,
-         instances: this.instances,
+         areas: this.areas,
          enemies: this.enemies,
+         players: this.players,
          character: this.character,
          server: this.server,
          serverId: this.serverId,

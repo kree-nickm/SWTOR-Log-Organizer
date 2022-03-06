@@ -88,11 +88,11 @@ async function createWindow()
          console.log("All Logs Parsed.");
       });
       await findAllLogs();
-      for(let log of combatLogs.logs)
+      /*for(let log of combatLogs.logs)
       {
          log.parse();
-         break;
-      }
+      }*/
+      combatLogs.logs[4].parse();
 	});
 	
 	let menu = new Menu();
