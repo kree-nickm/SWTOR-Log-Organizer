@@ -1,16 +1,9 @@
 "use strict";
 const { app, BrowserWindow, Menu, MenuItem, dialog, ipcMain } = require('electron');
-const events = require('events');
-const fs = require('fs/promises');
 const path = require('path');
 const { CombatLog } = require("./CombatLog.js");
 
 const appWindows = [];
-const combatLogs = {
-   parsed: 0,
-   logs: [],
-   events: new events.EventEmitter(),
-};
 
 app.whenReady().then(async () => {
 	createWindow();
@@ -28,20 +21,6 @@ app.on("window-all-closed", () => {
 ipcMain.on("inspect", (event, data) => {
 	appWindows[0].webContents.inspectElement(Math.round(data.left), Math.round(data.top));
 });
-
-async function findAllLogs()
-{
-   let dir = ".";
-	let files = await fs.readdir(dir);
-   files.forEach(file => {
-      if (!file.startsWith("combat_") || !file.endsWith(".txt"))
-         return;
-      for(let log of combatLogs.logs)
-         if(log.filename == file)
-            return;
-      combatLogs.logs.push(new CombatLog(dir, file, combatLogs));
-   });
-}
 
 async function showMessage(props)
 {
@@ -71,7 +50,7 @@ async function createWindow()
 		height: 1050,
 		webPreferences: {
 			nodeIntegration: true,
-			//preload: path.join(__dirname, 'preload.js')
+         contextIsolation: false,
 		}
 	});
 
@@ -81,18 +60,38 @@ async function createWindow()
 			appWindows[i] = null;
 	});
 	appWindows[0].webContents.on("dom-ready", async () => {
-      combatLogs.events.on("logParsed", (log) => {
-         console.log(log.simplify());
+      // Setup event listeners
+      console.log("Setting up event listeners.");
+      CombatLog.events.on("logParsed", (log) => {
+         //console.log(log);
       });
-      combatLogs.events.on("allLogsParsed", () => {
+      CombatLog.events.on("allLogsParsed", () => {
+         CombatLog.saveCache();
          console.log("All Logs Parsed.");
+			appWindows[0].webContents.send("logList", CombatLog.logList);
       });
-      await findAllLogs();
-      /*for(let log of combatLogs.logs)
-      {
-         log.parse();
-      }*/
-      combatLogs.logs[4].parse();
+      CombatLog.events.once("readyToParse", () => {
+         console.log("Parsing logs.");
+         for(let log of CombatLog.logList)
+         {
+            log.parse();
+         }
+         //CombatLog.logList[14].parse();
+      });
+      CombatLog.events.on("allLogsFound", () => {
+         console.log("All logs identified.");
+      });
+      CombatLog.events.on("logCacheLoaded", () => {
+         console.log("Log cache loaded.");
+      });
+      CombatLog.events.on("logCacheSaved", () => {
+         console.log("Log cache saved.");
+      });
+      
+      // Being reading logs.
+      console.log("Loading logs.");
+      CombatLog.findAllLogs();
+      CombatLog.loadCache();
 	});
 	
 	let menu = new Menu();

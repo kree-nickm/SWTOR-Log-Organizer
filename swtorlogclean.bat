@@ -61,6 +61,7 @@ if not exist "saveencounters.txt" (
    echo Dxun - The CI-004 Facility>> saveencounters.txt
    echo Toborro's Palace Courtyard>> saveencounters.txt
    echo Hive of the Mountain Queen>> saveencounters.txt
+   echo R-4 Anomaly>> saveencounters.txt
    echo ------------------------------------------------
    echo ------------------- NOTE -----------------------
    echo ------------------------------------------------

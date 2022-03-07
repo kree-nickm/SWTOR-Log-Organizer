@@ -4,7 +4,6 @@ const $ = jQuery = require('jquery');
 require("./node_modules/jquery-ui-dist/jquery-ui.min.js");
 
 const Renderer = new (function(){
-	this.stringCollator = new Intl.Collator("en");
 	this.requiredFiles = {};
 	this.contextMenu = [];
 	
@@ -12,28 +11,6 @@ const Renderer = new (function(){
 	{
 		ipcRenderer.send(channel, data);
 	}
-	
-	this.requireFile = function(nodeFile, withTime)
-	{
-		if(fs.existsSync(nodeFile))
-		{
-			let stat = fs.statSync(nodeFile);
-			let modTime = stat.mtimeMs;
-			if(!this.requiredFiles[nodeFile] || modTime > this.requiredFiles[nodeFile])
-			{
-				let resolve = require.resolve("./"+ nodeFile);
-				if(require.cache[resolve])
-					delete require.cache[resolve];
-				this.requiredFiles[nodeFile] = modTime;
-			}
-			if(withTime)
-				return {module:require("./"+ nodeFile), time:this.requiredFiles[nodeFile]};
-			else
-				return require("./"+ nodeFile);
-		}
-		else
-			throw "Tried to load non-existent Node.js file '"+ nodeFile +"'.";
-	};
 	
 	this.addToContextMenu = function(icon, text, action, divider)
 	{
@@ -79,6 +56,24 @@ const Renderer = new (function(){
 	};
 })();
 
+ipcRenderer.on("logList", (event, logList) => {
+   let logListBody = $("#logListBody");
+   logListBody.empty();
+   for(let log of logList)
+   {
+      logListBody.append("<tr></tr>");
+      let row = logListBody.children().last();
+      row.append(`<td>${log.filename}</td>`);
+      row.append(`<td>${log.server}</td>`);
+      row.append(`<td>${log.patch}</td>`);
+      row.append(`<td>${log.character?.name}</td>`);
+      let areas = log.areas.reduce((previousValue, currentValue) => {
+         return previousValue + (previousValue ? ", " : "") + currentValue.area + (currentValue.mode? " ("+ currentValue.mode +")" :"")
+      }, "");
+      row.append(`<td>${areas}</td>`);
+   }
+});
+
 $(document).on("contextmenu", event => {
 	Renderer.showContextMenu(true);
 });
@@ -86,24 +81,3 @@ $(document).on("click", event => {
 	Renderer.showContextMenu(false);
 });
 $("#contextmenu").menu();
-
-function sortByTitle(a, b) {
-	if(!a.t && !b.t)
-		return 0;
-	else if(!a.t)
-		return 1;
-	else if(!b.t)
-		return -1;
-	else
-		return Renderer.stringCollator.compare(a.t, b.t);
-}
-function sortByID(a, b) {
-	if(!a.id && !b.id)
-		return 0;
-	else if(!a.id)
-		return 1;
-	else if(!b.id)
-		return -1;
-	else
-		return Renderer.stringCollator.compare(a.id, b.id);
-}

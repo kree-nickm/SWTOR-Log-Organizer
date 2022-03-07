@@ -1,3 +1,6 @@
+swtorlogclean.bat
+saveencounters.txt
+logDataCache.json
 combat_*.txt
 misc/
 
