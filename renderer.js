@@ -67,10 +67,10 @@ ipcRenderer.on("logList", (event, logList) => {
       row.append(`<td>${log.server}</td>`);
       row.append(`<td>${log.patch}</td>`);
       row.append(`<td>${log.character?.name}</td>`);
-      let areas = log.areas.reduce((previousValue, currentValue) => {
-         return previousValue + (previousValue ? ", " : "") + currentValue.area + (currentValue.mode? " ("+ currentValue.mode +")" :"")
-      }, "");
-      row.append(`<td>${areas}</td>`);
+      let areas = log.areas.reduce((previousValue, currentValue) => previousValue + (previousValue ? "<br/>" : "") + currentValue.area + (currentValue.mode? " ("+ currentValue.mode +")" :""), "");
+      row.append(`<td><div class="scroll-list">${areas}</div></td>`);
+      let players = log.players.reduce((previousValue, currentValue) => previousValue + (previousValue ? "<br/>" : "") + currentValue.name + (currentValue.pcName? " ("+ currentValue.pcName +")" :""), "");
+      row.append(`<td><div class="scroll-list">${players}</div></td>`);
    }
 });
 

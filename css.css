@@ -1,3 +1,22 @@
+body {
+   font-family: Tahoma, sans-serif;
+}
+
 #logList {
    width: 100%;
+}
+
+#logList thead {
+   background-color: #dddddd;
+}
+
+#logListBody tr:nth-child(even) {
+   background-color: #eeeeee;
+}
+
+#logListBody div {
+   font-size: 0.9em;
+   line-height: 1.1em;
+   max-height: 5.5em;
+   overflow-y: auto;
 }

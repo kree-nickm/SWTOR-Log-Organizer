@@ -7,7 +7,7 @@ const path = require('path');
 
 class CombatLog
 {
-   static logVersion = 1;
+   static logVersion = 3;
    static logsParsed = 0;
    static logList = [];
    static logListPopulated = false;
@@ -58,11 +58,6 @@ class CombatLog
    
    static async saveCache()
    {
-      let cache = {
-         logVersion: CombatLog.logVersion,
-         logList: {},
-         reference: {},
-      };
       await fsPromises.writeFile("logDataCache.json", JSON.stringify({
          logVersion: CombatLog.logVersion,
          logList: CombatLog.logList,
@@ -119,8 +114,10 @@ class CombatLog
          {
             fh = await fsPromises.open(this.filepath);
             rl = readline.createInterface({
-               input: fh.createReadStream(),
-               crlfDelay: Infinity
+               input: fh.createReadStream({
+                  encoding: "utf8",
+               }),
+               crlfDelay: Infinity,
             });
 
             rl.on("line", (line) => {
@@ -164,15 +161,45 @@ class CombatLog
                      let areaData = {
                         area: effectData.specific,
                         areaId: effectData.specificId,
-                        unique: effectData.specificId,
                      };
                      if(effectData.modifier)
                      {
                         areaData.mode = effectData.modifier;
                         areaData.modeId = effectData.modifierId;
-                        areaData.unique = areaData.unique + ":" + effectData.modifierId;
                      }
-                     CombatLog.addUnique(this.areas, areaData, "unique");
+                     let found = -1;
+                     for(let i in this.areas)
+                     {
+                        if(this.areas[i].areaId == areaData.areaId)
+                        {
+                           /* Possibilities to check:
+                              neither have a mode, or new one has no mode -> skip duplicate
+                              only new one has a mode -> overwrite
+                              both have same mode -> skip duplicate
+                              both have different modes -> not a duplicate, keep going
+                           */
+                           if(!areaData.modeId)
+                           {
+                              found = i;
+                              break;
+                           }
+                           else if(!this.areas[i].modeId)
+                           {
+                              found = i;
+                              this.areas[i] = areaData;
+                              break;
+                           }
+                           else if(areaData.modeId == this.areas[i].modeId)
+                           {
+                              found = i;
+                              break;
+                           }
+                        }
+                     }
+                     if(found == -1)
+                     {
+                        this.areas.push(areaData);
+                     }
                   }
                   else if(lineData.effect.indexOf("{836045448945501}") > -1) // Damage dealt
                   {
@@ -287,17 +314,13 @@ class CombatLog
          {
             result.isCompanion = true;
             let parsed = CombatLog.parseId(companionString);
-            if(parsed.instanceId)
-            {
-               result.instanceId = parsed.instanceId;
-               result.unique = parsed.id +":"+ parsed.instanceId;
-            }
-            else
-               result.unique = parsed.id;
+            //if(parsed.instanceId)
+            //   result.instanceId = parsed.instanceId;
             result.pcName = result.name;
             result.pcId = result.id;
             result.name = parsed.name;
             result.id = parsed.id;
+            result.unique = result.pcId + ":" + result.id;
          }
          else
          {
