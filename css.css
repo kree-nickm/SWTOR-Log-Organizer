@@ -2,6 +2,37 @@ body {
    font-family: Tahoma, sans-serif;
 }
 
+#contextmenu {
+	display: none;
+	position: absolute;
+}
+
+#contextmenu.showing {
+	display: inline-block;
+}
+
+/*
+	View Definitions
+*/
+
+.view {
+	display: none;
+}
+
+.view.view-selected {
+	display: block;
+	position: absolute;
+	top: 0px;
+	left: 0px;
+	right: 0px;
+	bottom: 0px;
+	box-sizing: border-box;
+}
+
+/*
+	Log List
+*/
+
 #logList {
    width: 100%;
 }

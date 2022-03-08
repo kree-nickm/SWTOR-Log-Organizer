@@ -1,5 +1,4 @@
 const { ipcRenderer } = require('electron');
-const fs = require('fs');
 const $ = jQuery = require('jquery');
 require("./node_modules/jquery-ui-dist/jquery-ui.min.js");
 
@@ -57,6 +56,7 @@ const Renderer = new (function(){
 })();
 
 ipcRenderer.on("logList", (event, logList) => {
+   logList = JSON.parse(logList);
    let logListBody = $("#logListBody");
    logListBody.empty();
    for(let log of logList)

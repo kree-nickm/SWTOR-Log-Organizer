@@ -5,71 +5,115 @@ const fsPromises = require('fs/promises');
 const readline = require('readline');
 const path = require('path');
 
-class CombatLog
+class CombatLogCollection
 {
-   static logVersion = 3;
-   static logsParsed = 0;
-   static logList = [];
-   static logListPopulated = false;
-   static loadedCache = null;
-   static events = new events.EventEmitter();
-   static rexLine = /^\[(?<timestamp>[^\]]*)] \[(?<subject>[^\]]*)] \[(?<object>[^\]]*)] \[(?<action>[^\]]*)] \[(?<effect>[^\]]*)](?: \((?<detail1>[^\]]*)\))?(?: <(?<detail2>[^\]]*)>)?/;
-   
-   static async findAllLogs(dir=".")
+   constructor(dir=__dirname)
    {
-      let files = await fsPromises.readdir(dir);
+      dir = path.normalize(dir);
+      if(dir == ".")
+         this.dir = __dirname;
+      else if(path.isAbsolute(dir))
+         this.dir = dir;
+      else
+         this.dir = path.join(__dirname, dir);
+      this.logsParsed = 0;
+      this.logList = [];
+      this.loadedCache = null;
+      this.cacheUnsaved = false;
+      this.events = new events.EventEmitter();
+   }
+   
+   async init()
+   {
+      await Promise.all([this.findAllLogs(), this.loadCache()]).then(([numLogs, numCached]) => {
+         console.log("Parsing logs.");
+         return this.parseAll();
+      }).then(() => {
+         this.events.emit("ready");
+      });
+   }
+   
+   toJSON(key)
+   {
+      return {
+         dir: this.dir,
+         logList: this.logList,
+         logVersion: CombatLog.logVersion,
+      };
+   }
+   
+   async findAllLogs()
+   {
+      let files = await fsPromises.readdir(this.dir);
       files.forEach(file => {
          if (!file.startsWith("combat_") || !file.endsWith(".txt"))
             return;
-         for(let log of CombatLog.logList)
+         for(let log of this.logList)
             if(log.filename == file)
                return;
-         CombatLog.logList.push(new CombatLog(dir, file));
+         this.logList.push(new CombatLog(file, this));
       });
-      CombatLog.logListPopulated = true;
-      CombatLog.events.emit("allLogsFound");
-      CombatLog.checkParseReady();
+      this.events.emit("allLogsFound");
+      return this.logList.length;
    }
    
-	static async loadCache()
+	async loadCache()
    {
 		try
 		{
-			CombatLog.loadedCache = JSON.parse(await fsPromises.readFile("logDataCache.json"));
+			this.loadedCache = JSON.parse(await fsPromises.readFile("logDataCache.json"));
 		}
 		catch(err)
 		{
 			if(err.code == "ENOENT")
 			{
-            CombatLog.loadedCache = {};
+            this.loadedCache = {};
 			}
 			else
 				throw err;
 		}
-      CombatLog.events.emit("logCacheLoaded");
-      CombatLog.checkParseReady();
+      this.events.emit("logCacheLoaded");
+      return this.loadedCache?.logList?.length;
 	}
    
-   static async checkParseReady()
+   async saveCache()
    {
-      if(CombatLog.loadedCache != null && CombatLog.logListPopulated)
-         CombatLog.events.emit("readyToParse");
+      await fsPromises.writeFile("logDataCache.json", JSON.stringify(this));
+      this.cacheUnsaved = false;
+      this.events.emit("logCacheSaved");
    }
    
-   static async saveCache()
+   async parseAll()
    {
-      await fsPromises.writeFile("logDataCache.json", JSON.stringify({
-         logVersion: CombatLog.logVersion,
-         logList: CombatLog.logList,
-      }));
-      CombatLog.events.emit("logCacheSaved");
+      for(let log of this.logList)
+      {
+         await log.parse();
+      }
+      this.events.emit("allLogsParsed");
    }
+}
+
+class CombatLog
+{
+   static cachedProperties = [
+      'filename',
+      'filesize',
+      'patch',
+      'server',
+      'serverId',
+      'areas',
+      'character',
+      'players',
+      'enemies',
+   ];
+   static logVersion = 3;
+   static rexLine = /^\[(?<timestamp>[^\]]*)] \[(?<subject>[^\]]*)] \[(?<object>[^\]]*)] \[(?<action>[^\]]*)] \[(?<effect>[^\]]*)](?: \((?<detail1>[^\]]*)\))?(?: <(?<detail2>[^\]]*)>)?/;
    
-   constructor(dir, file)
+   constructor(file, parent)
    {
+      this.parent = parent;
       this.filename = file;
-      this.dir = dir;
-      this.filepath = (dir == "." ? file : (dir.endsWith("/") || dir.endsWith("\\") ? dir + file : dir + path.sep + file));
+      this.filepath = path.join(parent.dir, file);
       let stat = fs.statSync(this.filepath);
       this.filesize = stat.size;
       this.parsed = false;
@@ -83,31 +127,39 @@ class CombatLog
       this.enemies = [];
    }
    
+   toJSON(key)
+   {
+      return CombatLog.cachedProperties.reduce((previousValue, currentValue) => {
+         previousValue[currentValue] = this[currentValue];
+         return previousValue;
+      }, {});
+   }
+   
    async parse(force)
    {
-      if(this.parsed && !force)
-         return true;
       let already = false;
-      if(CombatLog.logVersion == CombatLog.loadedCache?.logVersion)
+      if(this.parsed && !force)
       {
-         for(let cached of CombatLog.loadedCache.logList)
+         console.log("Already parsed "+ this.filename);
+         already = true;
+      }
+      else if(CombatLog.logVersion == this.parent.loadedCache?.logVersion)
+      {
+         for(let cached of this.parent.loadedCache.logList)
          {
             if(cached.filename == this.filename && cached.filesize == this.filesize)
             {
                console.log("Using cached "+ this.filename);
                already = true;
-               this.patch = cached.patch;
-               this.server = cached.server;
-               this.serverId = cached.serverId;
-               this.areas = cached.areas;
-               this.character = cached.character;
-               this.players = cached.players;
-               this.enemies = cached.enemies;
+               for(let prop of CombatLog.cachedProperties)
+                  this[prop] = cached[prop];
             }
          }
       }
+      
       if(!already)
       {
+         this.parent.cacheUnsaved = true;
          let fh;
          let rl;
          try
@@ -245,12 +297,10 @@ class CombatLog
       if(!this.parsed)
       {
          this.parsed = true;
-         CombatLog.logsParsed++;
+         this.parent.logsParsed++;
       }
-      CombatLog.events.emit("logParsed", this);
-      if(CombatLog.logsParsed == CombatLog.logList.length)
-         CombatLog.events.emit("allLogsParsed");
-      return this.parsed;
+      this.parent.events.emit("logParsed", this);
+      return this;
    }
    
    static addUnique(array, newItem, property=null, replace=false)
@@ -379,5 +429,6 @@ class CombatLog
 }
 
 module.exports = {
-   CombatLog: CombatLog
+   CombatLogCollection: CombatLogCollection,
+   CombatLog: CombatLog,
 };

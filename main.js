@@ -1,7 +1,7 @@
 "use strict";
 const { app, BrowserWindow, Menu, MenuItem, dialog, ipcMain } = require('electron');
 const path = require('path');
-const { CombatLog } = require("./CombatLog.js");
+const { CombatLogCollection, CombatLog } = require("./CombatLog.js");
 
 const appWindows = [];
 
@@ -21,6 +21,36 @@ app.on("window-all-closed", () => {
 ipcMain.on("inspect", (event, data) => {
 	appWindows[0].webContents.inspectElement(Math.round(data.left), Math.round(data.top));
 });
+
+var pageReady = false;
+var logsReady = false;
+const combatLogs = new CombatLogCollection();
+combatLogs.events.on("allLogsFound", () => {
+   console.log("All logs identified.");
+});
+combatLogs.events.on("logCacheLoaded", () => {
+   console.log("Log cache loaded.");
+});
+combatLogs.events.on("logParsed", (log) => {
+   //console.log(log);
+});
+combatLogs.events.on("allLogsParsed", () => {
+   console.log("All Logs Parsed.");
+   if(combatLogs.cacheUnsaved)
+      combatLogs.saveCache();
+   logsReady = true;
+   if(pageReady)
+      everythingReady();
+});
+combatLogs.events.on("logCacheSaved", () => {
+   console.log("Log cache saved.");
+});
+combatLogs.init();
+
+function everythingReady()
+{
+   appWindows[0].webContents.send("logList", JSON.stringify(combatLogs.logList));
+}
 
 async function showMessage(props)
 {
@@ -48,50 +78,25 @@ async function createWindow()
 	appWindows[0] = new BrowserWindow({
 		width: 1500,
 		height: 1050,
+		show: false,
+		title: "SWTOR Log Organizer",
 		webPreferences: {
+         // Note: This is the quick-and-dirty way. Probably fine since this app doesn't load external web pages.
 			nodeIntegration: true,
          contextIsolation: false,
 		}
 	});
 
+	appWindows[0].once("ready-to-show", () => { appWindows[0].show() });
 	appWindows[0].loadFile("index.html");
 	appWindows[0].on("closed", () => {
 		for(let i in appWindows)
 			appWindows[i] = null;
 	});
 	appWindows[0].webContents.on("dom-ready", async () => {
-      // Setup event listeners
-      console.log("Setting up event listeners.");
-      CombatLog.events.on("logParsed", (log) => {
-         //console.log(log);
-      });
-      CombatLog.events.on("allLogsParsed", () => {
-         CombatLog.saveCache();
-         console.log("All Logs Parsed.");
-			appWindows[0].webContents.send("logList", CombatLog.logList);
-      });
-      CombatLog.events.once("readyToParse", () => {
-         console.log("Parsing logs.");
-         for(let log of CombatLog.logList)
-         {
-            log.parse();
-         }
-         //CombatLog.logList[14].parse();
-      });
-      CombatLog.events.on("allLogsFound", () => {
-         console.log("All logs identified.");
-      });
-      CombatLog.events.on("logCacheLoaded", () => {
-         console.log("Log cache loaded.");
-      });
-      CombatLog.events.on("logCacheSaved", () => {
-         console.log("Log cache saved.");
-      });
-      
-      // Being reading logs.
-      console.log("Loading logs.");
-      CombatLog.findAllLogs();
-      CombatLog.loadCache();
+      pageReady = true;
+      if(logsReady)
+         everythingReady();
 	});
 	
 	let menu = new Menu();
