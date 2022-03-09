@@ -1,15 +1,5 @@
-const { ipcRenderer } = require('electron');
-const $ = jQuery = require('jquery');
-require("./node_modules/jquery-ui-dist/jquery-ui.min.js");
-
 const Renderer = new (function(){
-	this.requiredFiles = {};
 	this.contextMenu = [];
-	
-	this.send = function(channel, data)
-	{
-		ipcRenderer.send(channel, data);
-	}
 	
 	this.addToContextMenu = function(icon, text, action, divider)
 	{
@@ -33,7 +23,7 @@ const Renderer = new (function(){
 		let menu = $("#contextmenu");
 		if(show)
 		{
-			this.addToContextMenu("zoomin", "Inspect Element", event => { Renderer.send("inspect", menu.offset()); }, true);
+			this.addToContextMenu("zoomin", "Inspect Element", event => { window.electronAPI.inspectElement(menu.offset()); }, true);
 			menu.addClass("showing").offset({left:event.pageX, top:event.pageY}).html("");
 			for(let i in this.contextMenu)
 			{
@@ -55,21 +45,21 @@ const Renderer = new (function(){
 	};
 })();
 
-ipcRenderer.on("logList", (event, logList) => {
-   logList = JSON.parse(logList);
+window.electronAPI.populateLogList((event, logs, references) => {
+   logs = JSON.parse(logs);
    let logListBody = $("#logListBody");
    logListBody.empty();
-   for(let log of logList)
+   for(let log of logs)
    {
       logListBody.append("<tr></tr>");
       let row = logListBody.children().last();
       row.append(`<td>${log.filename}</td>`);
       row.append(`<td>${log.server}</td>`);
       row.append(`<td>${log.patch}</td>`);
-      row.append(`<td>${log.character?.name}</td>`);
+      row.append(`<td>${references[log.character]?.name}</td>`);
       let areas = log.areas.reduce((previousValue, currentValue) => previousValue + (previousValue ? "<br/>" : "") + currentValue.area + (currentValue.mode? " ("+ currentValue.mode +")" :""), "");
       row.append(`<td><div class="scroll-list">${areas}</div></td>`);
-      let players = log.players.reduce((previousValue, currentValue) => previousValue + (previousValue ? "<br/>" : "") + currentValue.name + (currentValue.pcName? " ("+ currentValue.pcName +")" :""), "");
+      let players = log.players.reduce((previousValue, currentValue) => previousValue + (previousValue ? "<br/>" : "") + references[currentValue].name + (references[currentValue].pcName? " ("+ references[currentValue].pcName +")" :""), "");
       row.append(`<td><div class="scroll-list">${players}</div></td>`);
    }
 });

@@ -18,6 +18,7 @@ class CombatLogCollection
          this.dir = path.join(__dirname, dir);
       this.logsParsed = 0;
       this.logList = [];
+      this.references = {};
       this.loadedCache = null;
       this.cacheUnsaved = false;
       this.events = new events.EventEmitter();
@@ -38,6 +39,7 @@ class CombatLogCollection
       return {
          dir: this.dir,
          logList: this.logList,
+         references: this.references,
          logVersion: CombatLog.logVersion,
       };
    }
@@ -61,7 +63,12 @@ class CombatLogCollection
    {
 		try
 		{
-			this.loadedCache = JSON.parse(await fsPromises.readFile("logDataCache.json"));
+         let cache = JSON.parse(await fsPromises.readFile("logDataCache.json"));
+         this.references = cache.references;
+			this.loadedCache = {
+            logList: cache.logList,
+            logVersion: cache.logVersion,
+         };
 		}
 		catch(err)
 		{
@@ -106,7 +113,7 @@ class CombatLog
       'players',
       'enemies',
    ];
-   static logVersion = 3;
+   static logVersion = 4;
    static rexLine = /^\[(?<timestamp>[^\]]*)] \[(?<subject>[^\]]*)] \[(?<object>[^\]]*)] \[(?<action>[^\]]*)] \[(?<effect>[^\]]*)](?: \((?<detail1>[^\]]*)\))?(?: <(?<detail2>[^\]]*)>)?/;
    
    constructor(file, parent)
@@ -178,7 +185,10 @@ class CombatLog
                {
                   if(lineData.action.startsWith("Safe Login") && !this.character)
                   {
-                     this.character = CombatLog.parseEntity(lineData.subject);
+                     let entity = this.parseEntity(lineData.subject);
+                     if(!this.parent.references[entity.unique])
+                        this.parent.references[entity.unique] = entity;
+                     this.character = entity.unique;
                   }
                   else if(lineData.effect.startsWith("AreaEntered"))
                   {
@@ -255,26 +265,26 @@ class CombatLog
                   }
                   else if(lineData.effect.indexOf("{836045448945501}") > -1) // Damage dealt
                   {
-                     let source = CombatLog.parseEntity(lineData.subject);
-                     let target = CombatLog.parseEntity(lineData.object);
+                     let source = this.parseEntity(lineData.subject);
+                     let target = this.parseEntity(lineData.object);
                      if(source.unique == this.character.unique)
-                        CombatLog.addUnique(this.enemies, target, "unique");
+                        this.addEntity(this.enemies, target);
                      else if(target.unique == this.character.unique)
-                        CombatLog.addUnique(this.enemies, source, "unique");
+                        this.addEntity(this.enemies, source);
                      
                      if(source.isPC && source.unique != this.character.unique)
-                        CombatLog.addUnique(this.players, source, "unique");
+                        this.addEntity(this.players, source);
                      if(target.isPC && target.unique != this.character.unique)
-                        CombatLog.addUnique(this.players, target, "unique");
+                        this.addEntity(this.players, target);
                   }
                   else if(lineData.effect.indexOf("{836045448945500}") > -1) // Healing dealt
                   {
-                     let source = CombatLog.parseEntity(lineData.subject);
-                     let target = CombatLog.parseEntity(lineData.object);
+                     let source = this.parseEntity(lineData.subject);
+                     let target = this.parseEntity(lineData.object);
                      if(source.isPC && source.unique != this.character.unique)
-                        CombatLog.addUnique(this.players, source, "unique");
+                        this.addEntity(this.players, source);
                      if(target.isPC && target.unique != this.character.unique)
-                        CombatLog.addUnique(this.players, target, "unique");
+                        this.addEntity(this.players, target);
                   }
                }
                else
@@ -303,19 +313,14 @@ class CombatLog
       return this;
    }
    
-   static addUnique(array, newItem, property=null, replace=false)
+   addEntity(array, newItem)
    {
-      if(!newItem || (property && !newItem[property]))
+      if(!newItem?.unique)
          return -1;
       let found = -1;
       for(let i in array)
       {
-         if(property && array[i][property] == newItem[property])
-         {
-            found = i;
-            break;
-         }
-         else if(!property && array[i] == newItem)
+         if(array[i] == newItem.unique)
          {
             found = i;
             break;
@@ -323,18 +328,18 @@ class CombatLog
       }
       if(found == -1)
       {
-         array.push(newItem);
+         if(!this.parent.references[newItem.unique])
+            this.parent.references[newItem.unique] = newItem;
+         array.push(newItem.unique);
          return array.length-1;
       }
       else
       {
-         if(replace)
-            array[i] = newItem;
          return found;
       }
    }
    
-   static parseEntity(string, includeDetails=false)
+   parseEntity(string, includeDetails=false)
    {
       if(string == "=")
          return {referToSubject:true};

@@ -1,9 +1,9 @@
 "use strict";
 const { app, BrowserWindow, Menu, MenuItem, dialog, ipcMain } = require('electron');
-const path = require('path');
-const { CombatLogCollection, CombatLog } = require("./CombatLog.js");
-
 const appWindows = [];
+
+var pageReady = false;
+var logsReady = false;
 
 app.whenReady().then(async () => {
 	createWindow();
@@ -19,11 +19,36 @@ app.on("window-all-closed", () => {
 });
 
 ipcMain.on("inspect", (event, data) => {
-	appWindows[0].webContents.inspectElement(Math.round(data.left), Math.round(data.top));
+	event.sender.inspectElement(Math.round(data.left), Math.round(data.top));
 });
 
-var pageReady = false;
-var logsReady = false;
+async function showMessage(props)
+{
+	switch(props.type)
+	{
+		case "error":
+			console.error(props);
+			break;
+		case "warning":
+			console.warn(props);
+			break;
+		case "question":
+			break;
+		default:
+			console.log(props);
+	}
+	if(appWindows[0])
+		return await dialog.showMessageBox(appWindows[0], props);
+	else
+		return null;
+}
+
+function everythingReady()
+{
+   appWindows[0].webContents.send("log-list", JSON.stringify(combatLogs.logList), combatLogs.references);
+}
+
+const { CombatLogCollection, CombatLog } = require("./CombatLog.js");
 const combatLogs = new CombatLogCollection();
 combatLogs.events.on("allLogsFound", () => {
    console.log("All logs identified.");
@@ -47,43 +72,16 @@ combatLogs.events.on("logCacheSaved", () => {
 });
 combatLogs.init();
 
-function everythingReady()
-{
-   appWindows[0].webContents.send("logList", JSON.stringify(combatLogs.logList));
-}
-
-async function showMessage(props)
-{
-	switch(props.type)
-	{
-		case "error":
-			console.error(props);
-			break;
-		case "warning":
-			console.warn(props);
-			break;
-		case "question":
-			break;
-		default:
-			console.log(props);
-	}
-	if(appWindows[0])
-		return await dialog.showMessageBox(appWindows[0], props);
-	else
-		return null;
-}
-
 async function createWindow()
 {
+   const path = require('path');
 	appWindows[0] = new BrowserWindow({
 		width: 1500,
 		height: 1050,
 		show: false,
 		title: "SWTOR Log Organizer",
 		webPreferences: {
-         // Note: This is the quick-and-dirty way. Probably fine since this app doesn't load external web pages.
-			nodeIntegration: true,
-         contextIsolation: false,
+         preload: path.join(__dirname, "preload.js"),
 		}
 	});
 
